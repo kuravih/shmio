@@ -189,7 +189,6 @@ namespace shmio
         pthread_cond_t ready_cond;
         bool request_flag;
         bool ready_flag;
-        bool terminate;
         struct timespec creationtime;   // creation time
         struct timespec lastaccesstime; // last access time
         size_t nkw;                     // Number of keywords
@@ -618,7 +617,6 @@ namespace shmio
         storage->dtype = _dtype;
         storage->request_flag = false;
         storage->ready_flag = false;
-        storage->terminate = false;
 
         char *base = reinterpret_cast<char *>(get_keywords_ptr(_memory));
         std::memcpy(base, _keywords.data(), _keywords.size() * sizeof(Keyword));
@@ -701,14 +699,8 @@ namespace shmio
         _storage->request_flag = true; // Request a frame from storage
         pthread_cond_signal(&_storage->request_cond);
 
-        while (!_storage->ready_flag && !_storage->terminate) // Wait till storage marks it ready (or termination)
+        while (!_storage->ready_flag) // Wait till storage marks it ready
             pthread_cond_wait(&_storage->ready_cond, &_storage->mutex);
-
-        if (_storage->terminate)
-        {
-            pthread_mutex_unlock(&_storage->mutex);
-            return -1;
-        }
 
         clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime); // At this point, producer captured a frame
 
@@ -727,14 +719,8 @@ namespace shmio
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
 
-        while (!_storage->request_flag && !_storage->terminate) // Wait until there is a request for a new frame or termination
+        while (!_storage->request_flag) // Wait until there is a request for a new frame
             pthread_cond_wait(&_storage->request_cond, &_storage->mutex);
-
-        if (_storage->terminate)
-        {
-            pthread_mutex_unlock(&_storage->mutex);
-            return -1;
-        }
 
         clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime); // No copy here: data are already written in shared memory by producer. Only update flags and timestamps.
 
