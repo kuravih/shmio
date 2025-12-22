@@ -691,20 +691,18 @@ namespace shmio
 
     int pull_data_from_storage(SharedStorage *_storage)
     {
-        // pull data from storage (usually source storage)
-
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
 
-        _storage->request_flag = true; // Request a frame from storage
+        _storage->request_flag = true; // request frame from storage
         pthread_cond_signal(&_storage->request_cond);
 
-        while (!_storage->ready_flag) // Wait till storage marks it ready
+        while (!_storage->ready_flag) // wait for frame ready
             pthread_cond_wait(&_storage->ready_cond, &_storage->mutex);
 
-        clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime); // At this point, producer captured a frame
+        clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
 
-        _storage->ready_flag = false; // signal storage ready for next cycle
+        _storage->ready_flag = false; // frame consumed, mark as not ready
 
         pthread_mutex_unlock(&_storage->mutex);
         // ==== end critical section ==================================================================================
@@ -714,18 +712,16 @@ namespace shmio
 
     int push_data_to_storage(SharedStorage *_storage)
     {
-        // push data to storage (usually sink storage)
-
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
 
-        while (!_storage->request_flag) // Wait until there is a request for a new frame
+        while (!_storage->request_flag) // wait for request
             pthread_cond_wait(&_storage->request_cond, &_storage->mutex);
 
-        clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime); // No copy here: data are already written in shared memory by producer. Only update flags and timestamps.
+        clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
 
-        _storage->ready_flag = true; // Mark as ready
-        _storage->request_flag = false;
+        _storage->ready_flag = true; // frame produced, mark as ready
+        _storage->request_flag = false; // clear as request fulfilled
 
         pthread_cond_signal(&_storage->ready_cond);
         pthread_mutex_unlock(&_storage->mutex);
