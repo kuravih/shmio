@@ -700,7 +700,10 @@ namespace shmio
         while (!_storage->ready_flag) // wait for frame ready
             pthread_cond_wait(&_storage->ready_cond, &_storage->mutex);
 
+        // --- consume frame ------------------------------------------------------------------------------------------
+
         clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
+        // --- frame consumed -----------------------------------------------------------------------------------------
 
         _storage->ready_flag = false; // frame consumed, mark as not ready
 
@@ -718,10 +721,13 @@ namespace shmio
         while (!_storage->request_flag) // wait for request
             pthread_cond_wait(&_storage->request_cond, &_storage->mutex);
 
+        // ---- produce frame -----------------------------------------------------------------------------------------
+
         clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
+        // ---- frame produced ----------------------------------------------------------------------------------------
 
         _storage->ready_flag = true; // frame produced, mark as ready
-        _storage->request_flag = false; // clear as request fulfilled
+        _storage->request_flag = false; // mark as request fulfilled
 
         pthread_cond_signal(&_storage->ready_cond);
         pthread_mutex_unlock(&_storage->mutex);
