@@ -699,7 +699,6 @@ namespace shmio
 
         while (!_storage->ready_flag) // wait for frame ready
             pthread_cond_wait(&_storage->ready_cond, &_storage->mutex);
-
         // --- consume frame ------------------------------------------------------------------------------------------
 
         clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
@@ -710,6 +709,29 @@ namespace shmio
         pthread_mutex_unlock(&_storage->mutex);
         // ==== end critical section ==================================================================================
 
+        return 0;
+    }
+
+    int consumer_request_start(SharedStorage *_storage)
+    {
+        // ==== begin critical section ================================================================================
+        pthread_mutex_lock(&_storage->mutex);
+        _storage->request_flag = true; // request frame from storage
+        pthread_cond_signal(&_storage->request_cond);
+        pthread_mutex_unlock(&_storage->mutex);
+        // ==== end critical section ==================================================================================
+        return 0;
+    }
+
+    int consumer_wait_for_ready(SharedStorage *_storage)
+    {
+        // ==== begin critical section ================================================================================
+        pthread_mutex_lock(&_storage->mutex);
+        while (!_storage->ready_flag) // wait for frame ready
+            pthread_cond_wait(&_storage->ready_cond, &_storage->mutex);
+        _storage->ready_flag = false;
+        pthread_mutex_unlock(&_storage->mutex);
+        // ==== end critical section ==================================================================================
         return 0;
     }
 
@@ -733,6 +755,29 @@ namespace shmio
         pthread_mutex_unlock(&_storage->mutex);
         // ==== end critical section ==================================================================================
 
+        return 0;
+    }
+
+    int producer_wait_for_request(SharedStorage *_storage)
+    {
+        // ==== begin critical section ================================================================================
+        pthread_mutex_lock(&_storage->mutex);
+        while (!_storage->request_flag) // wait for request
+            pthread_cond_wait(&_storage->request_cond, &_storage->mutex);
+        pthread_mutex_unlock(&_storage->mutex);
+        // ==== end critical section ==================================================================================
+        return 0;
+    }
+
+    int producer_request_done(SharedStorage *_storage)
+    {
+        // ==== begin critical section ================================================================================
+        pthread_mutex_lock(&_storage->mutex);
+        _storage->ready_flag = true;
+        _storage->request_flag = false;
+        pthread_cond_signal(&_storage->ready_cond);
+        pthread_mutex_unlock(&_storage->mutex);
+        // ==== end critical section ==================================================================================
         return 0;
     }
 
