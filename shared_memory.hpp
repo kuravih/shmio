@@ -689,31 +689,10 @@ namespace shmio
         return clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
     }
 
-    int pull_data_from_storage(SharedStorage *_storage)
-    {
-        // ==== begin critical section ================================================================================
-        pthread_mutex_lock(&_storage->mutex);
-
-        _storage->request_flag = true; // request frame from storage
-        pthread_cond_signal(&_storage->request_cond);
-
-        while (!_storage->ready_flag) // wait for frame ready
-            pthread_cond_wait(&_storage->ready_cond, &_storage->mutex);
-        // --- consume frame ------------------------------------------------------------------------------------------
-
-        clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
-        // --- frame consumed -----------------------------------------------------------------------------------------
-
-        _storage->ready_flag = false; // frame consumed, mark as not ready
-
-        pthread_mutex_unlock(&_storage->mutex);
-        // ==== end critical section ==================================================================================
-
-        return 0;
-    }
-
     int consumer_request_start(SharedStorage *_storage)
-    {
+    {   /*
+            set request flag to true
+        */
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
         _storage->request_flag = true; // request frame from storage
@@ -724,7 +703,10 @@ namespace shmio
     }
 
     int consumer_wait_for_ready(SharedStorage *_storage)
-    {
+    {   /*
+            wait for ready_flag to become true
+            set ready flag to false
+        */
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
         while (!_storage->ready_flag) // wait for frame ready
@@ -735,31 +717,10 @@ namespace shmio
         return 0;
     }
 
-    int push_data_to_storage(SharedStorage *_storage)
-    {
-        // ==== begin critical section ================================================================================
-        pthread_mutex_lock(&_storage->mutex);
-
-        while (!_storage->request_flag) // wait for request
-            pthread_cond_wait(&_storage->request_cond, &_storage->mutex);
-
-        // ---- produce frame -----------------------------------------------------------------------------------------
-
-        clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
-        // ---- frame produced ----------------------------------------------------------------------------------------
-
-        _storage->ready_flag = true; // frame produced, mark as ready
-        _storage->request_flag = false; // mark as request fulfilled
-
-        pthread_cond_signal(&_storage->ready_cond);
-        pthread_mutex_unlock(&_storage->mutex);
-        // ==== end critical section ==================================================================================
-
-        return 0;
-    }
-
     int producer_wait_for_request(SharedStorage *_storage)
-    {
+    {   /*
+            wait for request flag to become true
+        */
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
         while (!_storage->request_flag) // wait for request
@@ -770,7 +731,10 @@ namespace shmio
     }
 
     int producer_request_done(SharedStorage *_storage)
-    {
+    {   /*
+            set request flag to false
+            set ready flag to true
+        */
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
         _storage->ready_flag = true;
