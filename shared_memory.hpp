@@ -185,10 +185,10 @@ namespace shmio
     struct SharedStorage
     {
         pthread_mutex_t mutex;
-        pthread_cond_t request_cond;
-        pthread_cond_t ready_cond;
-        bool request_flag;
-        bool ready_flag;
+        pthread_cond_t has_request_cond;
+        pthread_cond_t has_response_cond;
+        bool has_request;
+        bool has_response;
         struct timespec creationtime;   // creation time
         struct timespec lastaccesstime; // last access time
         size_t nkw;                     // Number of keywords
@@ -607,16 +607,16 @@ namespace shmio
         pthread_condattr_t cattr;
         pthread_condattr_init(&cattr);
         pthread_condattr_setpshared(&cattr, PTHREAD_PROCESS_SHARED);
-        pthread_cond_init(&storage->request_cond, &cattr);
-        pthread_cond_init(&storage->ready_cond, &cattr);
+        pthread_cond_init(&storage->has_request_cond, &cattr);
+        pthread_cond_init(&storage->has_response_cond, &cattr);
 
         clock_gettime(CLOCK_REALTIME, &storage->creationtime);
         storage->lastaccesstime = storage->creationtime;
         storage->nkw = _keywords.size();
         storage->npx = _npx;
         storage->dtype = _dtype;
-        storage->request_flag = false;
-        storage->ready_flag = false;
+        storage->has_request = false;
+        storage->has_response = false;
 
         char *base = reinterpret_cast<char *>(get_keywords_ptr(_memory));
         std::memcpy(base, _keywords.data(), _keywords.size() * sizeof(Keyword));
@@ -689,57 +689,53 @@ namespace shmio
         return clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
     }
 
-    int consumer_request_start(SharedStorage *_storage)
-    {   /*
-            set request flag to true
-        */
+    int post_request(SharedStorage *_storage)
+    {
+        // set request flag to true
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
-        _storage->request_flag = true; // request frame from storage
-        pthread_cond_signal(&_storage->request_cond);
+        _storage->has_request = true; // request frame from storage
+        pthread_cond_signal(&_storage->has_request_cond);
         pthread_mutex_unlock(&_storage->mutex);
         // ==== end critical section ==================================================================================
         return 0;
     }
 
-    int consumer_wait_for_ready(SharedStorage *_storage)
-    {   /*
-            wait for ready_flag to become true
-            set ready flag to false
-        */
+    int wait_for_response(SharedStorage *_storage)
+    {
+        // wait for has_response to become true
+        // set ready flag to false
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
-        while (!_storage->ready_flag) // wait for frame ready
-            pthread_cond_wait(&_storage->ready_cond, &_storage->mutex);
-        _storage->ready_flag = false;
+        while (!_storage->has_response) // wait for frame ready
+            pthread_cond_wait(&_storage->has_response_cond, &_storage->mutex);
+        _storage->has_response = false;
         pthread_mutex_unlock(&_storage->mutex);
         // ==== end critical section ==================================================================================
         return 0;
     }
 
-    int producer_wait_for_request(SharedStorage *_storage)
-    {   /*
-            wait for request flag to become true
-        */
+    int wait_for_request(SharedStorage *_storage)
+    {
+        // wait for request flag to become true
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
-        while (!_storage->request_flag) // wait for request
-            pthread_cond_wait(&_storage->request_cond, &_storage->mutex);
+        while (!_storage->has_request) // wait for request
+            pthread_cond_wait(&_storage->has_request_cond, &_storage->mutex);
         pthread_mutex_unlock(&_storage->mutex);
         // ==== end critical section ==================================================================================
         return 0;
     }
 
-    int producer_request_done(SharedStorage *_storage)
-    {   /*
-            set request flag to false
-            set ready flag to true
-        */
+    int post_response(SharedStorage *_storage)
+    {
+        // set request flag to false
+        // set ready flag to true
         // ==== begin critical section ================================================================================
         pthread_mutex_lock(&_storage->mutex);
-        _storage->ready_flag = true;
-        _storage->request_flag = false;
-        pthread_cond_signal(&_storage->ready_cond);
+        _storage->has_response = true;
+        _storage->has_request = false;
+        pthread_cond_signal(&_storage->has_response_cond);
         pthread_mutex_unlock(&_storage->mutex);
         // ==== end critical section ==================================================================================
         return 0;
