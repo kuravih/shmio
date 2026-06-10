@@ -644,9 +644,9 @@ namespace shmio
         return 0;
     };
 
-    inline int create_shared_memory(SharedMemory &_memory, const char *_name, const size_t _npx, const DataType _dtype, const std::vector<Keyword> &_keywords)
+    inline int create_open_shared_memory(SharedMemory &_memory, const char *_name, const size_t _npx, const DataType _dtype, const std::vector<Keyword> &_keywords)
     {
-        // create_shared_memory
+        // create_open_shared_memory
         //   Create an opened shared memory. if a shared memory by that name exists an attempt will be made to use it.
         // Parameters:
         //   SharedMemory &_memory - memory
