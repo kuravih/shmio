@@ -1,5 +1,5 @@
-#ifndef __SHMIO_SHARED_MEMORY_HPP__
-#define __SHMIO_SHARED_MEMORY_HPP__
+#ifndef SHMIO_SHARED_MEMORY_HPP_
+#define SHMIO_SHARED_MEMORY_HPP_
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -12,8 +12,8 @@
 #include <vector>
 #include <pthread.h>
 #include <span>
+#include <cerrno>
 
-#define PATH_SIZE 256                // size of path
 #define KEYWORD_MAX_STRING 16        // Max keyword name or string length
 #define KEYWORD_STR_VAL_MAX_STRING 8 // Max size of a string keyword value
 #define KEYWORD_MAX_COMMENT 80       // Max comment size
@@ -79,28 +79,25 @@ namespace shmio
 
         Keyword(const char *_name, const KeywordType _type, int64_t _value, const char *_comment) : type(_type)
         {
-            std::strncpy(name, _name, KEYWORD_MAX_STRING - 1);
+            std::strncpy(name, _name, KEYWORD_MAX_STRING);
             value.numl = _value;
-            std::strncpy(comment, _comment, KEYWORD_MAX_COMMENT - 1);
+            std::strncpy(comment, _comment, KEYWORD_MAX_COMMENT);
         }
-
-        Keyword(const char *_name, const KeywordType _type, uint32_t _value, const char *_comment) : Keyword(_name, _type, (int64_t)_value, _comment) {}
-        Keyword(const char *_name, const KeywordType _type, int _value, const char *_comment) : Keyword(_name, _type, (int64_t)_value, _comment) {}
 
         Keyword(const char *_name, const KeywordType _type, double _value, const char *_comment) : type(_type)
         {
-            std::strncpy(name, _name, KEYWORD_MAX_STRING - 1);
+            std::strncpy(name, _name, KEYWORD_MAX_STRING);
             value.numf = _value;
-            std::strncpy(comment, _comment, KEYWORD_MAX_COMMENT - 1);
+            std::strncpy(comment, _comment, KEYWORD_MAX_COMMENT);
         }
 
         Keyword(const char *_name, const KeywordType _type, float _value, const char *_comment) : Keyword(_name, _type, (double)_value, _comment) {}
 
         Keyword(const char *_name, const KeywordType _type, const char *_value, const char *_comment) : type(_type)
         {
-            std::strncpy(name, _name, KEYWORD_MAX_STRING - 1);
-            std::strncpy(value.valstr, _value, KEYWORD_STR_VAL_MAX_STRING - 1);
-            std::strncpy(comment, _comment, KEYWORD_MAX_COMMENT - 1);
+            std::strncpy(name, _name, KEYWORD_MAX_STRING);
+            std::strncpy(value.valstr, _value, KEYWORD_STR_VAL_MAX_STRING);
+            std::strncpy(comment, _comment, KEYWORD_MAX_COMMENT);
         }
 
         bool operator==(const Keyword &other) const noexcept
@@ -108,9 +105,9 @@ namespace shmio
             if (type != other.type)
                 return false;
 
-            if (std::strncmp(name, other.name, KEYWORD_MAX_STRING - 1) != 0)
+            if (std::strncmp(name, other.name, KEYWORD_MAX_STRING) != 0)
                 return false;
-            if (std::strncmp(comment, other.comment, KEYWORD_MAX_COMMENT - 1) != 0)
+            if (std::strncmp(comment, other.comment, KEYWORD_MAX_COMMENT) != 0)
                 return false;
 
             switch (type)
@@ -120,7 +117,7 @@ namespace shmio
             case KeywordType::DOUBLE:
                 return value.numf == other.value.numf;
             case KeywordType::STRING:
-                return std::strncmp(value.valstr, other.value.valstr, KEYWORD_STR_VAL_MAX_STRING - 1) == 0;
+                return std::strncmp(value.valstr, other.value.valstr, KEYWORD_STR_VAL_MAX_STRING) == 0;
             }
             return false; // fallback
         }
@@ -179,7 +176,7 @@ namespace shmio
         case DataType::COMPLEX_DOUBLE:
             return SIZEOF_DATATYPE_COMPLEX_DOUBLE;
         }
-        return _DATATYPE_UNINITIALIZED;
+        __builtin_unreachable();
     }
 
     struct SharedStorage
@@ -187,8 +184,8 @@ namespace shmio
         pthread_mutex_t mutex;
         pthread_cond_t has_request_cond;
         pthread_cond_t has_response_cond;
-        bool has_request;
-        bool has_response;
+        volatile bool has_request;
+        volatile bool has_response;
         struct timespec creationtime;   // creation time
         struct timespec lastaccesstime; // last access time
         size_t nkw;                     // Number of keywords
@@ -221,6 +218,11 @@ namespace shmio
         {
             if (this != &other)
             {
+                if (base != nullptr)
+                    munmap(base, size);
+                if (fd != -1)
+                    close(fd);
+
                 fd = other.fd;
                 size = other.size;
                 name = std::move(other.name);
@@ -242,7 +244,7 @@ namespace shmio
         //   Calculate the size of the shared memory.
         // Parameters:
         //   const size_t _nkw - number of keywords
-        //   const size_t _npx - numper of pixles
+        //   const size_t _npx - number of pixels
         //   const DataType _dtype - data type
         // Return:
         //   size_t size of the shared memory.
@@ -385,13 +387,27 @@ namespace shmio
         //   SharedMemory &_memory - memory
         // Return:
         //   0 if stream closed correctly.
+        SharedStorage *storage = get_storage_ptr(_memory);
+        pthread_mutex_destroy(&storage->mutex);
+        pthread_cond_destroy(&storage->has_request_cond);
+        pthread_cond_destroy(&storage->has_response_cond);
 
         munmap(_memory.base, _memory.size);
         close(_memory.fd);
-        // std::string path = std::string("/") + _memory.name + std::string(".shm");
+        // std::string path = shm_path(_memory.name);
         // shm_unlink(path.c_str()); // TODO: remove the file
 
+        _memory.base = nullptr;
+        _memory.data = nullptr;
+        _memory.fd = -1;
+        _memory.size = 0;
+
         return 0;
+    }
+
+    inline std::string shm_path(const std::string &name)
+    {
+        return "/" + name + ".shm";
     }
 
     inline bool shared_memory_exists(const char *_name)
@@ -402,7 +418,7 @@ namespace shmio
         //   const char* _name - name of the shared memory
         // Return:
         //   true if shared memory exists false otherwise
-        std::string path = std::string("/") + _name + std::string(".shm");
+        std::string path = shm_path(_name);
         int fd = shm_open(path.c_str(), O_RDONLY, 0);
         if (fd == -1)
         {
@@ -430,7 +446,7 @@ namespace shmio
             return -1;
         }
 
-        std::string path = std::string("/") + _memory.name + std::string(".shm");
+        std::string path = shm_path(_memory.name);
         _memory.fd = shm_open(path.c_str(), O_RDWR, 0); // Open existing shared memory object (read/write)
         if (_memory.fd == -1)
         {
@@ -448,6 +464,7 @@ namespace shmio
         size_t file_size = static_cast<size_t>(file_stat.st_size);
         if (file_size != data_size)
         {
+            close(_memory.fd);
             return -1;
         }
 
@@ -463,7 +480,7 @@ namespace shmio
         clock_gettime(CLOCK_REALTIME, &storage->lastaccesstime);
 
         std::span<Keyword> keywords = get_keywords(_memory);
-        for (size_t ikw = 0; ikw < storage->nkw; ++ikw)
+        for (size_t ikw = 0; ikw < storage->nkw && ikw < _keywords.size(); ++ikw)
         {
             if (std::strncmp(keywords[ikw].name, _keywords[ikw].name, KEYWORD_MAX_STRING) != 0)
             {
@@ -495,7 +512,7 @@ namespace shmio
                             keywords[ikw].value.numl = _keywords[ikw].value.numl;
                             break;
                         case KeywordType::STRING:
-                            std::strncpy(keywords[ikw].value.valstr, _keywords[ikw].value.valstr, KEYWORD_MAX_STRING - 1);
+                            std::strncpy(keywords[ikw].value.valstr, _keywords[ikw].value.valstr, KEYWORD_STR_VAL_MAX_STRING);
                             break;
                         default:
                             break;
@@ -524,7 +541,7 @@ namespace shmio
             return -1;
         }
 
-        std::string path = std::string("/") + _memory.name + std::string(".shm");
+        std::string path = shm_path(_memory.name);
         _memory.fd = shm_open(path.c_str(), O_RDWR, 0); // Open existing shared memory object (read/write)
         if (_memory.fd == -1)
         {
@@ -574,8 +591,8 @@ namespace shmio
             return -1;
         }
 
-        std::string path = std::string("/") + _memory.name + std::string(".shm");
-        _memory.fd = shm_open(path.c_str(), O_CREAT | O_RDWR, 0600);
+        std::string path = shm_path(_memory.name);
+        _memory.fd = shm_open(path.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
         if (_memory.fd < 0)
         {
             return -1;
@@ -609,6 +626,7 @@ namespace shmio
         pthread_condattr_setpshared(&cattr, PTHREAD_PROCESS_SHARED);
         pthread_cond_init(&storage->has_request_cond, &cattr);
         pthread_cond_init(&storage->has_response_cond, &cattr);
+        pthread_condattr_destroy(&cattr);
 
         clock_gettime(CLOCK_REALTIME, &storage->creationtime);
         storage->lastaccesstime = storage->creationtime;
@@ -640,11 +658,10 @@ namespace shmio
         //   0 if stream is created correctly. leaves the stream open.
 
         _memory.name = _name;
-        if (shared_memory_exists(_name))
-        {
+        int ret = create_open_shared_memory(_memory, _npx, _dtype, _keywords);
+        if (ret == -1 && errno == EEXIST)
             return setup_open_shared_memory(_memory, _npx, _dtype, _keywords);
-        }
-        return create_open_shared_memory(_memory, _npx, _dtype, _keywords);
+        return ret;
     }
 
     inline int open_shared_memory(SharedMemory &_memory, const char *_name)
@@ -658,14 +675,10 @@ namespace shmio
         //   0 if stream is created correctly. leaves the stream open.
 
         _memory.name = _name;
-        if (shared_memory_exists(_name))
-        {
-            return setup_open_shared_memory(_memory);
-        }
-        return -1;
+        return setup_open_shared_memory(_memory);
     }
 
-    Keyword *find_keyword(SharedMemory &_memory, const char *name) // Find keyword by name
+    inline Keyword *find_keyword(SharedMemory &_memory, const char *name) // Find keyword by name
     {
         for (Keyword &keyword : get_keywords(_memory))
         {
@@ -677,19 +690,19 @@ namespace shmio
         return nullptr;
     }
 
-    int update_creation_time(SharedStorage *_storage)
+    inline int update_creation_time(SharedStorage *_storage)
     {
         int ret = clock_gettime(CLOCK_REALTIME, &_storage->creationtime);
         _storage->lastaccesstime = _storage->creationtime; // Update last access time
         return ret;
     }
 
-    int update_last_access_time(SharedStorage *_storage)
+    inline int update_last_access_time(SharedStorage *_storage)
     {
         return clock_gettime(CLOCK_REALTIME, &_storage->lastaccesstime);
     }
 
-    int post_request(SharedStorage *_storage)
+    inline int post_request(SharedStorage *_storage)
     {
         // set request flag to true
         // ==== begin critical section ================================================================================
@@ -701,7 +714,7 @@ namespace shmio
         return 0;
     }
 
-    int wait_for_response(SharedStorage *_storage)
+    inline int wait_for_response(SharedStorage *_storage)
     {
         // wait for has_response to become true
         // set ready flag to false
@@ -715,7 +728,7 @@ namespace shmio
         return 0;
     }
 
-    int wait_for_request(SharedStorage *_storage)
+    inline int wait_for_request(SharedStorage *_storage)
     {
         // wait for request flag to become true
         // ==== begin critical section ================================================================================
@@ -727,7 +740,7 @@ namespace shmio
         return 0;
     }
 
-    int post_response(SharedStorage *_storage)
+    inline int post_response(SharedStorage *_storage)
     {
         // set request flag to false
         // set ready flag to true
@@ -741,15 +754,15 @@ namespace shmio
         return 0;
     }
 
-    int lock(SharedStorage *_storage)
+    inline int lock(SharedStorage *_storage)
     {
         return pthread_mutex_lock(&_storage->mutex);
     }
 
-    int unlock(SharedStorage *_storage)
+    inline int unlock(SharedStorage *_storage)
     {
         return pthread_mutex_unlock(&_storage->mutex);
     }
 
 }
-#endif // __SHMIO_SHARED_MEMORY_HPP__
+#endif // SHMIO_SHARED_MEMORY_HPP_
