@@ -387,13 +387,11 @@ namespace shmio
         //   SharedMemory &_memory - memory
         // Return:
         //   0 if stream closed correctly.
-        SharedStorage *storage = get_storage_ptr(_memory);
-        pthread_mutex_destroy(&storage->mutex);
-        pthread_cond_destroy(&storage->has_request_cond);
-        pthread_cond_destroy(&storage->has_response_cond);
 
-        munmap(_memory.base, _memory.size);
-        close(_memory.fd);
+        if (_memory.base != nullptr)
+            munmap(_memory.base, _memory.size);
+        if (_memory.fd != -1)
+            close(_memory.fd);
         // std::string path = shm_path(_memory.name);
         // shm_unlink(path.c_str()); // TODO: remove the file
 
@@ -457,6 +455,7 @@ namespace shmio
         if (fstat(_memory.fd, &file_stat) == -1) // Get the size of the shared memory object
         {
             close(_memory.fd);
+            _memory.fd = -1;
             return -1;
         }
 
@@ -465,6 +464,7 @@ namespace shmio
         if (file_size != data_size)
         {
             close(_memory.fd);
+            _memory.fd = -1;
             return -1;
         }
 
@@ -472,7 +472,9 @@ namespace shmio
         _memory.base = mmap(nullptr, _memory.size, PROT_READ | PROT_WRITE, MAP_SHARED, _memory.fd, 0);
         if (_memory.base == MAP_FAILED)
         {
+            _memory.base = nullptr;
             close(_memory.fd);
+            _memory.fd = -1;
             return -1;
         }
 
@@ -485,6 +487,10 @@ namespace shmio
             if (std::strncmp(keywords[ikw].name, _keywords[ikw].name, KEYWORD_MAX_STRING) != 0)
             {
                 // kato::log::cout << KATO_RED << "setup_open_shared_memory() - keyword " << ikw << "name not matching." << KATO_RESET << std::endl;
+                munmap(_memory.base, _memory.size);
+                _memory.base = nullptr;
+                close(_memory.fd);
+                _memory.fd = -1;
                 return -1;
             }
             else
@@ -492,6 +498,10 @@ namespace shmio
                 if (std::strncmp(keywords[ikw].comment, _keywords[ikw].comment, KEYWORD_MAX_COMMENT) != 0)
                 {
                     // kato::log::cout << KATO_RED << "setup_open_shared_memory() - keyword " << ikw << "comment not matching." << KATO_RESET << std::endl;
+                    munmap(_memory.base, _memory.size);
+                    _memory.base = nullptr;
+                    close(_memory.fd);
+                    _memory.fd = -1;
                     return -1;
                 }
                 else
@@ -499,6 +509,10 @@ namespace shmio
                     if (keywords[ikw].type != _keywords[ikw].type)
                     {
                         // kato::log::cout << KATO_RED << "setup_open_shared_memory() - keyword " << ikw << "type not matching." << KATO_RESET << std::endl;
+                        munmap(_memory.base, _memory.size);
+                        _memory.base = nullptr;
+                        close(_memory.fd);
+                        _memory.fd = -1;
                         return -1;
                     }
                     else
@@ -602,13 +616,16 @@ namespace shmio
         if (ftruncate(_memory.fd, _memory.size) == -1)
         {
             close(_memory.fd);
+            _memory.fd = -1;
             return -1;
         }
 
         _memory.base = mmap(nullptr, _memory.size, PROT_READ | PROT_WRITE, MAP_SHARED, _memory.fd, 0);
         if (_memory.base == MAP_FAILED)
         {
+            _memory.base = nullptr;
             close(_memory.fd);
+            _memory.fd = -1;
             return -1;
         }
 
